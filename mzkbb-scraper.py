@@ -22,10 +22,11 @@ def get_locations(page):
 
 	strainer = SoupStrainer('a', href=re.compile('^m_\d+'))
 	els = BeautifulSoup(page, parseOnlyThese=strainer)
-	return [{
-		"url": urljoin(base_url, el['href']),
-		"name": el('font')[0].contents[0].strip(),
-	} for el in els]
+	for el in els:
+		yield {
+			"url": urljoin(base_url, el['href']),
+			"name": el('font')[0].contents[0].strip(),
+		}
 
 def get_stops(page):
 	base_url = MZKBB_URL
@@ -36,7 +37,6 @@ def get_stops(page):
 	strainer = SoupStrainer('a', href=re.compile('^p_\d+'))
 	els = BeautifulSoup(page, parseOnlyThese=strainer)
 	strip_stop = re.compile("&nbsp.*")
-	stops = []
 	for el in els:
 		stop = {
 			"url": urljoin(base_url, el['href']),
@@ -46,8 +46,7 @@ def get_stops(page):
 		details = get_stop_details(stop['name'])
 		stop["longitude"] = details["longitude"]
 		stop["lattitude"] = details["lattitude"]
-		stops.append(stop)
-	return stops
+		yield stop
 
 def get_stop_details(name):
 	gps_re = re.compile("(\d+).(\d+)'(\d+)\"\s*(\w)")
@@ -56,7 +55,12 @@ def get_stop_details(name):
 	log.debug("Retrieving GPS details from " + url)
 	page = urlopen(url)
 
-	url = BeautifulSoup(page).findAll("ul", attrs={"class": "links"})[0].findAll('a')[0]['href']
+	results = BeautifulSoup(page).findAll("ul", attrs={"class": "links"})[0].findAll('a')
+	if len(results) == 0:
+		log.error("GPS coordinates for " + name + " not available")
+		return {'longitude': 0, 'lattitude': 0}
+
+	url = results[0]['href']
 	log.debug("Found stop detail page: " + url)
 	page = urlopen(url)
 	soup = BeautifulSoup(page)
