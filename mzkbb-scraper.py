@@ -71,79 +71,36 @@ def get_stops(page):
 		}
 		yield stop
 
-def get_stop_detail_page(name):
-	qstring = cgi.escape(name).encode('ascii', 'xmlcharrefreplace').replace(" ", "+")
-	url = urljoin(LB_URL, "/m/szukaj?q=" + qstring)
-	log.debug("Retrieving GPS details from " + url)
-	page = urlopen(url)
-
-	results = BeautifulSoup(page).findAll("ul", attrs={"class": "links"})[0].findAll('a')
-	if len(results) == 0:
-		log.error("GPS coordinates for " + name + " not available")
-		return {'longitude': 0, 'lattitude': 0}
-
-	url = results[0]['href']
-	log.debug("Found stop detail page: " + url)
-	page = urlopen(url)
-	soup = BeautifulSoup(page)
-	log.debug(soup.prettify())
-
-	platforms = filter(lambda e: e.string.strip()[:5] == "Peron", soup.findAll('strong'))
-	if len(platforms) > 0:
-		log.warning("Multiple platforms: " + ', '.join(map(lambda e: e.string.strip(), platforms)))
-		url = platforms[0].parent.parent['href']
-		log.debug("Found stop detail page: " + url)
-		page = urlopen(url)
-	
-def extract_stop_gps(page):
-	""" Extract GPS information from the specified *page*.
-
-	Returns a dictionary with the WGS84 *longitude* and *lattitude*.
+def extract_city_gps(page):
+	""" Extract GPS coordinates for stops on the specified *page*.
 
 	>>> import StringIO
 	>>> page = StringIO.StringIO()
-	>>> page.write('<div id="peron-info">')
-	>>> page.write('''<p>GPS: <strong>49°50'06" N, 19°00'32" E</strong></p>''')
-	>>> page.write('</div>')
+	>>> page.write('<a href="#" onclick="javascript:mapa.setCenter(')
+	>>> page.write('new google.maps.LatLng(49.827934,19.044628));')
+	>>> page.write('mapa.setZoom(15); return false;">')
+	>>> page.write('<strong>3 Maja/Dworzec</strong></a>')
 	>>> page.seek(0)
-	>>> extract_stop_gps(page)
-	{'longitude': 49.835, 'lattitude': 19.00888888888889}
+	>>> extract_city_gps(page)
+	{u'3 Maja/Dworzec': {'longitude': 19.044628, 'lattitude': 49.827934}}
 	"""
-	soup = BeautifulSoup(page)
-	info = soup.findAll('div', id="peron-info")[0]
-
-	gps = info.findAll('p')[0].findAll('strong')[0].contents[0].strip()
-	gps = gps.split(', ', 2)[:2]
-
-	gps_re = re.compile("(\d+).(\d+)'(\d+)\"\s*(\w)")
-	[d, m, s, di] = gps_re.match(gps[0]).groups()[:4]
-	lon = dms_to_decimal(int(d), int(m), int(s), di)
-
-	[d, m, s, di] = gps_re.match(gps[1]).groups()[:4]
-	lat = dms_to_decimal(int(d), int(m), int(s), di)
-
-	return {
-		"longitude": lon,
-		"lattitude": lat,
-	}
-
-def dms_to_decimal(degress, minutes, seconds, direction):
-	""" Convert degrees, minutes and seconds into decimal.
-
-	>>> round(dms_to_decimal(49, 50, 06, "E"), 4)
-	49.835
-	>>> round(dms_to_decimal(19, 0, 32, "N"), 4)
-	19.0089
-	>>> round(dms_to_decimal(49, 50, 06, "W"), 4)
-	-49.835
-	>>> round(dms_to_decimal(19, 0, 32, "S"), 4)
-	-19.0089
-	"""
-	direction = direction.upper()
-	sign = 1
-	if direction == 'W' or direction == 'S':
-		sign = -1
-	return (degress + (minutes / 60.0) + (seconds / 3600.0)) * sign
+	strainer = SoupStrainer('a', onclick=re.compile('maps\.LatLng'))
+	soup = BeautifulSoup(page, parseOnlyThese=strainer)
+	log.debug(soup.prettify())
+	onclick_re = re.compile('LatLng\((\d+(?:.\d*))?,(\d+(?:.\d*)?)\)')
+	gps = {}
+	for anchor in soup:
+		'onclick' in anchor or next
+		name = anchor.findAll('strong')[0].string.strip()
+		log.debug("Found stop: " + name)
+		match = onclick_re.search(anchor['onclick'])
+		lattitude = float(match.groups()[0])
+		longitude = float(match.groups()[1])
+		gps[name] = {
+			'longitude': longitude,
+			'lattitude': lattitude,
+		}
+	return gps
 
 def scrape_stops():
 	locations = get_locations(urlopen(MZKBB_LOCATION_URL))
@@ -151,12 +108,17 @@ def scrape_stops():
 	for location in locations:
 		location_page = urlopen(location['url'])
 		for stop in get_stops(location_page):
+			stop['name'] in gps or next # TODO: Get GPS info somehow
+			stop['longitude'] = gps[stop['name']]['longitude']
+			stop['lattitude'] = gps[stop['name']]['lattitude']
 			yield stop
 
 
 if __name__ == "__main__":
+	log.info("Retrieving GPS coordinates for stops in Bielsko Biala")
+	gps = scrape_city_gps("bielskobiala")
 	with open("stops.txt", "wb") as fh:
 		log.info("Writing stops.txt")
 		stops_csv = csv.DictWriter(fh, ['id', 'name', 'name', 'description', 'lattitude', 'longitude', 'zone_id', 'url'])
-		[stops_csv.writerow(s) for s in scrape_stops()]
+		[stops_csv.writerow(s) for s in scrape_stops(gps)]
 
