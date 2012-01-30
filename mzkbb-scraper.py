@@ -29,6 +29,31 @@ def get_locations(page):
 		}
 
 def get_stops(page):
+	""" Retrieve basic stop information on the specified *page*.
+
+	The *page* should be a file-like object. If the object has
+	a *geturl* attribute, such as those returned by urlopen(), the
+	returned url will be used as the base url.
+
+	A list of dictionaries containing stop details will be returned. The
+	dictionaries have the following keys:
+
+		url: The absolute URL of the stop. The network location will be
+		retrieved from *page.geturl()* if available.
+
+		name: The name of the stop.
+
+		id: The id/code of the stop.
+
+	>>> import StringIO
+	>>> page = StringIO.StringIO()
+	>>> page.write('<a href="p_272_m.htm" target="main">')
+	>>> page.write('<font face="Arial" size="-1" color="#000000">')
+	>>> page.write('3 Maja/Dworzec&nbsp;&nbsp;-&nbsp;&nbsp;2/1</font></a>')
+	>>> page.seek(0)
+	>>> list(get_stops(page))
+	[{'url': u'http://www.mzkb-b.internetdsl.pl/p_272_m.htm', 'name': u'3 Maja/Dworzec', 'id': u'272'}]
+	"""
 	base_url = MZKBB_URL
 	#if hasattr(page, 'geturl'):
 	#	url = urlparse(page.geturl)
