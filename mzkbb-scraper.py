@@ -1,19 +1,26 @@
 #!/usr/bin/env python2
 # coding=utf8
 from BeautifulSoup import BeautifulSoup, SoupStrainer
+from htmlentitydefs import name2codepoint
 from urllib2 import urlopen
 from urlparse import urljoin, urlparse, urlunparse
 import cgi
-import csv
+import codecs
 import logging
+import os
 import re
+import xml.etree.ElementTree
 
 MZKBB_URL = "http://www.mzkb-b.internetdsl.pl"
 MZKBB_LOCATION_URL = "http://www.mzkb-b.internetdsl.pl/miejscow_r.htm"
-LB_URL = "http://dev.lubie.bielsko.pl"
+SP_URL = "http://mapa.schedulerpoland.pl/request.php?city={0}&latnul=T&lines=N&search="
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger()
+
+def unescape(s):
+	# There is cgi.escape() but no cgi.unescape()?
+	return re.sub('&#(%s);' % '|'.join(name2codepoint), lambda m: unichr(name2codepoint[m.group(1)]), s)
 
 def get_locations(page):
 	base_url = MZKBB_URL
@@ -71,54 +78,60 @@ def get_stops(page):
 		}
 		yield stop
 
-def extract_city_gps(page):
-	""" Extract GPS coordinates for stops on the specified *page*.
+def extract_city_gps(payload):
+	""" Extract GPS coordinates for stops from the specified *xml*
+	document.
 
 	>>> import StringIO
-	>>> page = StringIO.StringIO()
-	>>> page.write('<a href="#" onclick="javascript:mapa.setCenter(')
-	>>> page.write('new google.maps.LatLng(49.827934,19.044628));')
-	>>> page.write('mapa.setZoom(15); return false;">')
-	>>> page.write('<strong>3 Maja/Dworzec</strong></a>')
-	>>> page.seek(0)
-	>>> extract_city_gps(page)
-	{u'3 Maja/Dworzec': {'longitude': 19.044628, 'lattitude': 49.827934}}
+	>>> xml = StringIO.StringIO()
+	>>> xml.write('<?xml version="1.0" encoding="utf-8"?><markers>')
+	>>> xml.write('<marker id="357259" name="3 Maja/Dworzec" display="" ')
+	>>> xml.write('lat="49.8279341851486" lng="19.0446281433105" id_user="-1" ')
+	>>> xml.write('id_sched="9" id_trans="-1" id_slupka=""></marker></markers>')
+	>>> xml.seek(0)
+	>>> extract_city_gps(xml)
+	{'3 Maja/Dworzec': {'longitude': 19.0446281433105, 'lattitude': 49.8279341851486}}
 	"""
-	strainer = SoupStrainer('a', onclick=re.compile('maps\.LatLng'))
-	soup = BeautifulSoup(page, parseOnlyThese=strainer)
-	log.debug(soup.prettify())
-	onclick_re = re.compile('LatLng\((\d+(?:.\d*))?,(\d+(?:.\d*)?)\)')
 	gps = {}
-	for anchor in soup:
-		'onclick' in anchor or next
-		name = anchor.findAll('strong')[0].string.strip()
-		log.debug("Found stop: " + name)
-		match = onclick_re.search(anchor['onclick'])
-		lattitude = float(match.groups()[0])
-		longitude = float(match.groups()[1])
+	doc = xml.etree.ElementTree.parse(payload)
+	for marker in doc.iterfind('marker'):
+		name = unescape(marker.get('name'))
+		log.debug("Found marker: " + name)
+		if len(marker.get('lat')) == 0 or len(marker.get('lng')) == 0:
+			log.warning(u"GPS coordinates for {0} are missing".format(name))
+			continue
+		lattitude = float(marker.get('lat'))
+		longitude = float(marker.get('lng'))
 		gps[name] = {
 			'longitude': longitude,
 			'lattitude': lattitude,
 		}
 	return gps
 
-def scrape_stops():
+def scrape_city_gps(city):
+	xml = urlopen(SP_URL.format("bielskobiala"))
+	return extract_city_gps(xml)
+
+def scrape_stops(gps):
 	locations = get_locations(urlopen(MZKBB_LOCATION_URL))
-	log.debug("Locations: " + repr(locations))
 	for location in locations:
+		log.info("Retrieving stops for " + location['name'])
 		location_page = urlopen(location['url'])
 		for stop in get_stops(location_page):
-			stop['name'] in gps or next # TODO: Get GPS info somehow
+			if not stop['name'] in gps:
+				# TODO: Get GPS info somehow
+				continue
+			log.info("Retrieved stop " + stop['name'])
 			stop['longitude'] = gps[stop['name']]['longitude']
 			stop['lattitude'] = gps[stop['name']]['lattitude']
 			yield stop
 
-
 if __name__ == "__main__":
 	log.info("Retrieving GPS coordinates for stops in Bielsko Biala")
 	gps = scrape_city_gps("bielskobiala")
-	with open("stops.txt", "wb") as fh:
+	with codecs.open('stops.txt', encoding='utf-8', mode='w') as fh:
 		log.info("Writing stops.txt")
-		stops_csv = csv.DictWriter(fh, ['id', 'name', 'name', 'description', 'lattitude', 'longitude', 'zone_id', 'url'])
-		[stops_csv.writerow(s) for s in scrape_stops(gps)]
+		fields = ['id', 'name', 'name', 'description', 'lattitude', 'longitude', 'zone_id', 'url']
+		for stop in scrape_stops(gps):
+			fh.write(','.join([unicode(k in stop and stop[k] or '') for k in fields]) + u'\n')
 
