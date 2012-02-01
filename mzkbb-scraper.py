@@ -4,6 +4,7 @@ from BeautifulSoup import BeautifulSoup, SoupStrainer
 from htmlentitydefs import name2codepoint
 from urllib2 import urlopen
 from urlparse import urljoin, urlparse, urlunparse
+import argparse
 import cgi
 import codecs
 import logging
@@ -16,7 +17,6 @@ MZKBB_LOCATION_URL = "http://www.mzkb-b.internetdsl.pl/miejscow_r.htm"
 MZKBB_ROUTE_URL = "http://mzkb-b.internetdsl.pl/linie_r.htm"
 SP_URL = "http://mapa.schedulerpoland.pl/request.php?city={0}&latnul=T&lines=N&search="
 
-logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger()
 
 def unescape(s):
@@ -160,16 +160,50 @@ def scrape_stops(gps):
 			stop['lattitude'] = gps[stop['name']]['lattitude']
 			yield stop
 
-def scrape_routes():
+def scrape_routes(agency):
 	page = urlopen(MZKBB_ROUTE_URL)
-	return extract_routes(page)
+	return extract_routes(page, agency)
 
-if __name__ == "__main__":
+def command_stops(args):
 	log.info("Retrieving GPS coordinates for stops in Bielsko Biala")
 	gps = scrape_city_gps("bielskobiala")
-	with codecs.open('stops.txt', encoding='utf-8', mode='w') as fh:
-		log.info("Writing stops.txt")
-		fields = ['id', 'name', 'name', 'description', 'lattitude', 'longitude', 'zone_id', 'url']
-		for stop in scrape_stops(gps):
-			fh.write(','.join([unicode(k in stop and stop[k] or '') for k in fields]) + u'\n')
+
+	log.info("Writing stops.txt")
+	fields = ['id', 'name', 'name', 'description', 'lattitude', 'longitude', 'zone_id', 'url']
+	for stop in scrape_stops(gps):
+		args.file.write(','.join([unicode(k in stop and stop[k] or '') for k in fields]) + u'\n')
+
+def command_routes(args):
+	fields = ['route_id', 'agency_id', 'short_name', 'long_name', 'desc', 'type', 'url']
+	for route in scrape_routes(AGENCY):
+		args.file.write(','.join([unicode(k in route and route[k] or '') for k in fields]) + u'\n')
+
+if __name__ == "__main__":
+	args_main = argparse.ArgumentParser(description='MZK Bielsko Biala scraper')
+	args_main.add_argument('-v', '--verbose', help='increase verbosity',
+		action='count', dest='verbosity')
+	args_main.set_defaults(verbosity=0)
+	sub_args = args_main.add_subparsers(help='command help')
+
+	args_common = argparse.ArgumentParser(add_help=False)
+	args_common.add_argument('-f', '--file', help='write to FILE',
+		type=argparse.FileType('w'), default='-')
+
+	args_stops = sub_args.add_parser('stops', help='scrape stop information',
+		parents=[args_common])
+	args_stops.set_defaults(func=command_stops)
+
+	args_routes = sub_args.add_parser('routes', help='scrape route information',
+		parents=[args_common])
+	args_routes.set_defaults(func=command_routes)
+
+	args = args_main.parse_args()
+
+	# Set logging level
+	logging_level = min(logging.WARNING - (args.verbosity * logging.DEBUG), logging.WARNING)
+	if logging_level < logging.DEBUG:
+		logging_level = logging.DEBUG
+	logging.basicConfig(level=logging_level)
+
+	args.func(args)
 
