@@ -13,6 +13,7 @@ import xml.etree.ElementTree
 
 MZKBB_URL = "http://www.mzkb-b.internetdsl.pl"
 MZKBB_LOCATION_URL = "http://www.mzkb-b.internetdsl.pl/miejscow_r.htm"
+MZKBB_ROUTE_URL = "http://mzkb-b.internetdsl.pl/linie_r.htm"
 SP_URL = "http://mapa.schedulerpoland.pl/request.php?city={0}&latnul=T&lines=N&search="
 
 logging.basicConfig(level=logging.DEBUG)
@@ -108,6 +109,39 @@ def extract_city_gps(payload):
 		}
 	return gps
 
+def extract_routes(payload):
+	""" Extract route information from the specified *page*.
+
+	>>> import StringIO
+	>>> page = StringIO.StringIO()
+	>>> page.write('<table border="0" width="100%" bgcolor="#FFFFFF"')
+	>>> page.write('bordercolor="#FFFFFF"><tbody><tr>')
+	>>> page.write('<td width="10%" align="center" bgcolor="#FFFFFF"></td>')
+	>>> page.write('<td width="10%" align="center" bgcolor="#FFFFC0">')
+	>>> page.write('<font face="Arial" size="-1" color="#000000">01</font>')
+	>>> page.write('</td><td width="35%" align="center" bgcolor="#FFFFC0">')
+	>>> page.write('<a href="linia_t_0.htm" target="main">')
+	>>> page.write('<font face="Arial" size="-1" color="#000000">Osiedle ')
+	>>> page.write('Beskidzkie</font></a></td>')
+	>>> page.write('<td width="35%" align="center" bgcolor="#FFFFC0">')
+	>>> page.write('<a href="linia_p_0.htm" target="main"><font face="Arial" ')
+	>>> page.write('size="-1" color="#000000">Cygański Las</font></a>')
+	>>> page.write('</td><td width="10%" align="center" bgcolor="#FFFFFF">')
+	>>> page.write('</td></tr></tbody></table>')
+	>>> page.seek(0)
+	>>> list(extract_routes(page))
+	[{'id': u'01', 'short_name': u'01'}]
+	"""
+	strainer = SoupStrainer('tr')
+	soup = BeautifulSoup(payload, parseOnlyThese=strainer)
+	for tr in soup:
+		tds = tr.findAll('td')
+		if len(tds) != 5:
+			continue
+		short_name = tds[1].findAll('font')[0].string.strip()
+		log.debug("Found route: " + short_name)
+		yield {'id': short_name, 'short_name': short_name}
+
 def scrape_city_gps(city):
 	xml = urlopen(SP_URL.format("bielskobiala"))
 	return extract_city_gps(xml)
@@ -125,6 +159,10 @@ def scrape_stops(gps):
 			stop['longitude'] = gps[stop['name']]['longitude']
 			stop['lattitude'] = gps[stop['name']]['lattitude']
 			yield stop
+
+def scrape_routes():
+	page = urlopen(MZKBB_ROUTE_URL)
+	return extract_routes(page)
 
 if __name__ == "__main__":
 	log.info("Retrieving GPS coordinates for stops in Bielsko Biala")
