@@ -117,7 +117,7 @@ def extract_city_gps(payload):
 		}
 	return gps
 
-def extract_routes(payload):
+def extract_routes(payload, agency):
 	""" Extract route information from the specified *page*.
 
 	>>> import StringIO
@@ -137,8 +137,8 @@ def extract_routes(payload):
 	>>> page.write('</td><td width="10%" align="center" bgcolor="#FFFFFF">')
 	>>> page.write('</td></tr></tbody></table>')
 	>>> page.seek(0)
-	>>> list(extract_routes(page))
-	[{'id': u'01', 'short_name': u'01'}]
+	>>> list(extract_routes(page, {'id': 1}))
+	[{'short_name': u'01', 'id': u'01', 'agency_id': 1}]
 	"""
 	strainer = SoupStrainer('tr')
 	soup = BeautifulSoup(payload, parseOnlyThese=strainer)
@@ -148,7 +148,7 @@ def extract_routes(payload):
 			continue
 		short_name = tds[1].findAll('font')[0].string.strip()
 		log.debug("Found route: " + short_name)
-		yield {'id': short_name, 'short_name': short_name}
+		yield {'id': short_name, 'agency_id': agency['id'], 'short_name': short_name}
 
 def scrape_city_gps(city):
 	xml = urlopen(SP_URL.format("bielskobiala"))
