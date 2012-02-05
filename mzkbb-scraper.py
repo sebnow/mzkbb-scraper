@@ -18,6 +18,14 @@ MZKBB_ROUTE_URL = "http://mzkb-b.internetdsl.pl/linie_r.htm"
 SP_URL = "http://mapa.schedulerpoland.pl/request.php?city={0}&latnul=T&lines=N&search="
 
 log = logging.getLogger()
+AGENCY = {
+	'id': 'MZKBB',
+	'name': u'Miejski Zakład Komunikacyjny w Bielsku-Białej',
+	'url': MZKBB_URL,
+	'timezone': 'Europe/Warsaw',
+	'language': 'pl',
+	'telephone': '+48338143511',
+}
 
 def unescape(s):
 	# There is cgi.escape() but no cgi.unescape()?
@@ -178,6 +186,11 @@ def command_routes(args):
 	for route in scrape_routes(AGENCY):
 		args.file.write(','.join([unicode(k in route and route[k] or '') for k in fields]) + u'\n')
 
+def command_agencies(args):
+	fields = ['id', 'name', 'url', 'timezone', 'language', 'telephone', 'fare_url']
+	for agency in [AGENCY]:
+		args.file.write(','.join([unicode(k in agency and agency[k] or '') for k in fields]) + u'\n')
+
 if __name__ == "__main__":
 	args_main = argparse.ArgumentParser(description='MZK Bielsko Biala scraper')
 	args_main.add_argument('-v', '--verbose', help='increase verbosity',
@@ -188,6 +201,10 @@ if __name__ == "__main__":
 	args_common = argparse.ArgumentParser(add_help=False)
 	args_common.add_argument('-f', '--file', help='write to FILE',
 		type=argparse.FileType('w'), default='-')
+
+	args_agencies = sub_args.add_parser('agencies', help='scrape agency information',
+		parents=[args_common])
+	args_agencies.set_defaults(func=command_agencies)
 
 	args_stops = sub_args.add_parser('stops', help='scrape stop information',
 		parents=[args_common])
